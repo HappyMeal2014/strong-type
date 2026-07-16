@@ -1,0 +1,17 @@
+:host {
+  display: block;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+}
+
+.app-shell__bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(170deg, #0a1420 0%, #0d222f 30%, #142c33 55%, #26232a 78%, #33221d 100%),
+    radial-gradient(60% 50% at 80% 15%, color-mix(in srgb, #3b82f6 18%, transparent) 0%, transparent 100%),
+    radial-gradient(55% 45% at 15% 90%, color-mix(in srgb, #e8b8a0 14%, transparent) 0%, transparent 100%);
+}

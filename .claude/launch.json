@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "strong-type-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "--", "--port", "0"],
+      "port": 4200,
+      "autoPort": true
+    }
+  ]
+}
