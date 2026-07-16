@@ -11,6 +11,16 @@
 npm-debug.log
 yarn-error.log
 
+# Server (Express API)
+server/node_modules
+server/dist
+
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+!server/.env.example
+
 # IDEs and editors
 .idea/
 .project

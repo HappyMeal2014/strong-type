@@ -1,45 +1,97 @@
-<section class="relative flex min-h-screen items-center justify-center px-4 sm:px-6">
-  <div
-    class="flex w-full max-w-2xl items-center gap-1.5 rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2.5 sm:px-4 sm:py-2.5"
-  >
-    <button
-      type="button"
-      aria-label="Add attachment"
-      class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+<section class="relative flex min-h-screen items-center justify-center px-4 py-16 sm:px-6">
+  <div class="flex w-full max-w-2xl flex-col items-center gap-4">
+    @if (!hasMessages()) {
+      <h1 class="mb-4 text-center text-2xl font-semibold text-white sm:text-3xl">
+        Welcome back to Strong Type. Which text would you like to enhance today?
+      </h1>
+    }
+
+    <div
+      class="flex w-full items-center gap-1.5 rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2.5 sm:px-4 sm:py-2.5"
     >
-      <svg lucidePlus class="h-4 w-4"></svg>
-    </button>
-
-    <button
-      type="button"
-      class="flex shrink-0 items-center gap-1 rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-slate-200 transition-colors hover:bg-white/15 sm:text-sm"
-    >
-      <span>General</span>
-      <svg lucideChevronDown class="h-3.5 w-3.5"></svg>
-    </button>
-
-    <input
-      type="text"
-      placeholder="Ask me anything..."
-      class="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-100 placeholder-slate-400 outline-none sm:text-base"
-    />
-
-    <div class="flex shrink-0 items-center gap-1 sm:gap-1.5">
       <button
         type="button"
-        aria-label="Search"
+        aria-label="Add attachment"
         class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
       >
-        <svg lucideSearch class="h-4 w-4"></svg>
+        <svg lucidePlus class="h-4 w-4"></svg>
       </button>
 
       <button
         type="button"
-        aria-label="Voice input"
-        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+        class="flex shrink-0 items-center gap-1 rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-slate-200 transition-colors hover:bg-white/15 sm:text-sm"
       >
-        <svg lucideMic class="h-4 w-4"></svg>
+        <span>General</span>
+        <svg lucideChevronDown class="h-3.5 w-3.5"></svg>
       </button>
+
+      <input
+        #textInput
+        type="text"
+        placeholder="Ask me anything..."
+        [disabled]="loading()"
+        (keydown.enter)="handleEnter(textInput)"
+        class="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-100 placeholder-slate-400 outline-none disabled:opacity-50 sm:text-base"
+      />
+
+      <div class="flex shrink-0 items-center gap-1 sm:gap-1.5">
+        <button
+          type="button"
+          aria-label="Search"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+        >
+          <svg lucideSearch class="h-4 w-4"></svg>
+        </button>
+
+        <button
+          type="button"
+          aria-label="Voice input"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+        >
+          <svg lucideMic class="h-4 w-4"></svg>
+        </button>
+      </div>
     </div>
+
+    @if (hasMessages() || loading() || error()) {
+      <div class="flex max-h-[50vh] w-full flex-col gap-3 overflow-y-auto scroll-smooth px-1 py-1">
+        @for (message of messages(); track $index) {
+          <div class="flex" [class]="message.role === 'user' ? 'justify-end' : 'justify-start'">
+            <div
+              class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm break-words sm:text-base"
+              [class]="
+                message.role === 'user'
+                  ? 'bg-blue-500 text-white'
+                  : 'border border-white/10 bg-slate-900/60 text-slate-100 backdrop-blur-md'
+              "
+            >
+              {{ message.content }}
+            </div>
+          </div>
+        }
+
+        @if (loading()) {
+          <div class="flex justify-start">
+            <div
+              class="max-w-[80%] animate-pulse rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-2.5 text-sm text-slate-400 backdrop-blur-md"
+            >
+              Thinking...
+            </div>
+          </div>
+        }
+
+        @if (error(); as message) {
+          <div class="flex justify-start">
+            <div
+              class="max-w-[80%] rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-300"
+            >
+              {{ message }}
+            </div>
+          </div>
+        }
+
+        <div #scrollAnchor></div>
+      </div>
+    }
   </div>
 </section>
