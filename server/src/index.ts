@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import Anthropic from '@anthropic-ai/sdk';
+import Groq from 'groq-sdk';
 
 // Anchor to this file's directory (not process.cwd()) so the key loads
 // correctly regardless of which directory the process was started from.
@@ -15,18 +15,22 @@ if (dotenvResult.error) {
 } else {
   console.log(`[startup] Loaded environment variables from ${envPath}`);
 }
-console.log(`[startup] ANTHROPIC_API_KEY present: ${Boolean(process.env['ANTHROPIC_API_KEY'])}`);
+console.log(`[startup] GROQ_API_KEY present: ${Boolean(process.env['GROQ_API_KEY'])}`);
 
-if (!process.env['ANTHROPIC_API_KEY']) {
+if (!process.env['GROQ_API_KEY']) {
   throw new Error(
-    `ANTHROPIC_API_KEY is not set (looked for it in ${envPath}). ` +
+    `GROQ_API_KEY is not set (looked for it in ${envPath}). ` +
       'Copy server/.env.example to server/.env and fill in your key.',
   );
 }
 
-const anthropic = new Anthropic();
+const groq = new Groq({ apiKey: process.env['GROQ_API_KEY'] });
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'llama-3.3-70b-versatile';
+const SYSTEM_PROMPT =
+  'You are the helpful conversational AI assistant embedded in Strong Type, ' +
+  'a site for strengthening and improving written text. Be friendly, clear, and concise.';
+
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_LENGTH = 50;
 
@@ -87,22 +91,24 @@ app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: Nex
       return;
     }
 
-    const response = await anthropic.messages.create({
+    // Groq's API is OpenAI-compatible: messages take the same
+    // { role, content } shape we already validate, just with a leading
+    // "system" message for the persona instead of a separate param.
+    const completion = await groq.chat.completions.create({
       model: MODEL,
-      max_tokens: 1024,
-      system:
-        'You are the helpful conversational AI assistant embedded in Strong Type, ' +
-        'a site for strengthening and improving written text. Be friendly, clear, and concise.',
-      messages: validation.messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...validation.messages.map((m) => ({ role: m.role, content: m.content })),
+      ],
     });
 
-    const textBlock = response.content.find((block) => block.type === 'text');
-    if (!textBlock) {
+    const text = completion.choices[0]?.message?.content;
+    if (!text) {
       res.status(502).json({ error: 'Model returned no text content.' });
       return;
     }
 
-    res.json({ reply: textBlock.text });
+    res.json({ reply: text });
   } catch (err) {
     next(err);
   }
@@ -118,8 +124,8 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (stack) {
     console.error(stack);
   }
-  // Anthropic SDK errors carry extra diagnostic fields (status, request id,
-  // upstream error body) beyond .message/.stack — log the whole object too.
+  // Groq SDK errors carry extra diagnostic fields beyond .message/.stack —
+  // log the whole object too.
   console.error('[error] full error object:', err);
 
   res.status(500).json({

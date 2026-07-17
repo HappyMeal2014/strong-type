@@ -3,6 +3,10 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { LucideChevronDown, LucideMic, LucidePlus, LucideSearch } from '@lucide/angular';
 
 const CHAT_URL = 'http://localhost:8787/api/chat';
+// Must match the server's MAX_HISTORY_LENGTH — the backend rejects longer
+// payloads outright, so a long local conversation has to be windowed down
+// before it's sent, or every request past this point fails forever.
+const MAX_HISTORY_SENT = 50;
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -47,7 +51,8 @@ export class Home {
     this.loading.set(true);
     this.error.set(null);
 
-    this.http.post<{ reply: string }>(CHAT_URL, { messages: this.messages() }).subscribe({
+    const payload = this.messages().slice(-MAX_HISTORY_SENT);
+    this.http.post<{ reply: string }>(CHAT_URL, { messages: payload }).subscribe({
       next: (response) => {
         this.messages.update((history) => [
           ...history,
