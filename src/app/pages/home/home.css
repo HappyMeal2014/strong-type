@@ -1,3 +1,20 @@
 :host {
   display: block;
+  height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE / legacy Edge */
+}
+
+:host::-webkit-scrollbar {
+  display: none; /* Chrome, Edge, Safari */
+}
+
+.chat-history {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE / legacy Edge */
+}
+
+.chat-history::-webkit-scrollbar {
+  display: none; /* Chrome, Edge, Safari */
 }

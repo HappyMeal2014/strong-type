@@ -1,5 +1,6 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Subscription } from 'rxjs';
 import { LucideChevronDown, LucideMic, LucidePlus, LucideSearch } from '@lucide/angular';
 
 const CHAT_URL = 'http://localhost:8787/api/chat';
@@ -21,6 +22,7 @@ export interface ChatMessage {
 })
 export class Home {
   private readonly http = inject(HttpClient);
+  private pendingRequest: Subscription | null = null;
 
   protected readonly messages = signal<ChatMessage[]>([]);
   protected readonly loading = signal(false);
@@ -46,24 +48,37 @@ export class Home {
     this.submit(text);
   }
 
+  protected newChat(input: HTMLInputElement): void {
+    this.pendingRequest?.unsubscribe();
+    this.pendingRequest = null;
+    this.messages.set([]);
+    this.error.set(null);
+    this.loading.set(false);
+    input.value = '';
+  }
+
   private submit(text: string): void {
     this.messages.update((history) => [...history, { role: 'user', content: text }]);
     this.loading.set(true);
     this.error.set(null);
 
     const payload = this.messages().slice(-MAX_HISTORY_SENT);
-    this.http.post<{ reply: string }>(CHAT_URL, { messages: payload }).subscribe({
-      next: (response) => {
-        this.messages.update((history) => [
-          ...history,
-          { role: 'assistant', content: response.reply },
-        ]);
-        this.loading.set(false);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.error.set(err.error?.error ?? 'Something went wrong. Please try again.');
-        this.loading.set(false);
-      },
-    });
+    this.pendingRequest = this.http
+      .post<{ reply: string }>(CHAT_URL, { messages: payload })
+      .subscribe({
+        next: (response) => {
+          this.messages.update((history) => [
+            ...history,
+            { role: 'assistant', content: response.reply },
+          ]);
+          this.loading.set(false);
+          this.pendingRequest = null;
+        },
+        error: (err: HttpErrorResponse) => {
+          this.error.set(err.error?.error ?? 'Something went wrong. Please try again.');
+          this.loading.set(false);
+          this.pendingRequest = null;
+        },
+      });
   }
 }
