@@ -4,6 +4,9 @@ import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import Groq from 'groq-sdk';
+import { validateMessages } from './validation';
+import { connectMongo } from './db';
+import { conversationsRouter } from './routes/conversations';
 
 // Anchor to this file's directory (not process.cwd()) so the key loads
 // correctly regardless of which directory the process was started from.
@@ -16,6 +19,7 @@ if (dotenvResult.error) {
   console.log(`[startup] Loaded environment variables from ${envPath}`);
 }
 console.log(`[startup] GROQ_API_KEY present: ${Boolean(process.env['GROQ_API_KEY'])}`);
+console.log(`[startup] MONGODB_URI present: ${Boolean(process.env['MONGODB_URI'])}`);
 
 if (!process.env['GROQ_API_KEY']) {
   throw new Error(
@@ -24,15 +28,17 @@ if (!process.env['GROQ_API_KEY']) {
   );
 }
 
+connectMongo(process.env['MONGODB_URI']);
+
 const groq = new Groq({ apiKey: process.env['GROQ_API_KEY'] });
 
 const MODEL = 'llama-3.3-70b-versatile';
 const SYSTEM_PROMPT =
   'You are the helpful conversational AI assistant embedded in Strong Type, ' +
-  'a site for strengthening and improving written text. Be friendly, clear, and concise.';
-
-const MAX_MESSAGE_LENGTH = 2000;
-const MAX_HISTORY_LENGTH = 50;
+  'a site for strengthening and improving written text. Explain things simply, ' +
+  'the way you would to a 12-year-old: short sentences, easy everyday words, ' +
+  'no jargon. Keep replies short — a few sentences at most, unless the user ' +
+  'clearly asks for more detail.';
 
 const app = express();
 app.use(cors({ origin: process.env['ALLOWED_ORIGIN'] ?? 'http://localhost:4200' }));
@@ -46,48 +52,15 @@ const chatLimiter = rateLimit({
   message: { error: 'Too many requests. Please try again later.' },
 });
 
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-function validateMessages(body: unknown): { error: string } | { messages: ChatMessage[] } {
-  const messages = (body as { messages?: unknown } | null)?.messages;
-
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return { error: 'Field "messages" is required and must be a non-empty array.' };
-  }
-  if (messages.length > MAX_HISTORY_LENGTH) {
-    return { error: `Conversation history must be at most ${MAX_HISTORY_LENGTH} messages.` };
-  }
-
-  for (const item of messages) {
-    const role = (item as Partial<ChatMessage> | null)?.role;
-    const content = (item as Partial<ChatMessage> | null)?.content;
-
-    if (role !== 'user' && role !== 'assistant') {
-      return { error: 'Each message must have role "user" or "assistant".' };
-    }
-    if (typeof content !== 'string' || content.trim().length === 0) {
-      return { error: 'Each message must have non-empty string content.' };
-    }
-    if (content.length > MAX_MESSAGE_LENGTH) {
-      return { error: `Each message must be at most ${MAX_MESSAGE_LENGTH} characters.` };
-    }
-  }
-
-  if (messages[messages.length - 1].role !== 'user') {
-    return { error: 'The last message in the conversation must be from the user.' };
-  }
-
-  return { messages: messages as ChatMessage[] };
-}
-
 app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validation = validateMessages(req.body);
     if ('error' in validation) {
       res.status(400).json({ error: validation.error });
+      return;
+    }
+    if (validation.messages[validation.messages.length - 1].role !== 'user') {
+      res.status(400).json({ error: 'The last message in the conversation must be from the user.' });
       return;
     }
 
@@ -114,6 +87,8 @@ app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: Nex
   }
 });
 
+app.use('/api/conversations', conversationsRouter);
+
 const isDev = process.env['NODE_ENV'] !== 'production';
 
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
@@ -124,7 +99,7 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (stack) {
     console.error(stack);
   }
-  // Groq SDK errors carry extra diagnostic fields beyond .message/.stack —
+  // Groq/Mongoose errors carry extra diagnostic fields beyond .message/.stack —
   // log the whole object too.
   console.error('[error] full error object:', err);
 

@@ -18,3 +18,19 @@
 .chat-history::-webkit-scrollbar {
   display: none; /* Chrome, Edge, Safari */
 }
+
+/* Mirrors the message log's flex-grow while empty (equal grow above and
+   below centers the greeting + input bar as a unit) and collapses to 0
+   once messages exist, so the log above expands and the input bar
+   animates down to the bottom. */
+.chat-spacer {
+  flex-grow: 1;
+  transition: flex-grow 500ms ease-in-out;
+}
+
+.chat-spacer--collapsed {
+  /* !important: this modifier must always win over the base .chat-spacer
+     rule above regardless of style-sheet injection order (observed to be
+     unreliable with Vite's component-style HMR in dev). */
+  flex-grow: 0 !important;
+}
