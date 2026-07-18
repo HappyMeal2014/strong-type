@@ -4,7 +4,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import Groq from 'groq-sdk';
-import { validateMessages } from './validation';
+import { validateMessages, ChatMessage } from './validation';
 import { connectMongo } from './db';
 import { conversationsRouter } from './routes/conversations';
 
@@ -37,6 +37,13 @@ const MODEL_GENERAL = 'llama-3.3-70b-versatile';
 // for the general mode) and has built-in reasoning, trading a bit of speed
 // for more thorough answers.
 const MODEL_SMART = 'openai/gpt-oss-120b';
+// Neither text model above understands images, so any request containing
+// image content is routed to this vision-capable model instead, regardless
+// of the selected mode — see hasImageContent()/resolve below. (Llama 4
+// Scout/Maverick, the models usually cited for Groq vision, 404 on this
+// account — confirmed via groq.models.list() — so this is the vision model
+// actually available and working here.)
+const MODEL_VISION = 'qwen/qwen3.6-27b';
 
 // "teenager" (Insight) and "smart" (Deeper Insight) both use the larger
 // model — they differ only in system prompt (and reasoning effort), not model.
@@ -97,10 +104,97 @@ function resolveSystemPrompt(mode: unknown): string {
 
 // Deeper Insight reasons harder than Insight — same model, different token
 // budget for reasoning — which also helps keep the two visibly distinct.
+// Only meaningful for MODEL_SMART; callers must not send it alongside the
+// vision model, which likely doesn't support the param.
 function resolveReasoningEffort(mode: unknown): 'high' | 'medium' | undefined {
   if (mode === 'smart') return 'high';
   if (mode === 'teenager') return 'medium';
   return undefined;
+}
+
+// In-memory only — resets on server restart, and isn't shared across
+// multiple server instances. Fine for this single-process dev/small-scale
+// setup; a real multi-instance deployment would need a shared store.
+interface TokenStatus {
+  remainingTokens: number | null;
+  limitTokens: number | null;
+  resetTokens: string | null;
+  model: string | null;
+  updatedAt: string | null;
+}
+let latestTokenStatus: TokenStatus = {
+  remainingTokens: null,
+  limitTokens: null,
+  resetTokens: null,
+  model: null,
+  updatedAt: null,
+};
+
+function captureTokenStatus(headers: Headers, model: string): void {
+  const remaining = headers.get('x-ratelimit-remaining-tokens');
+  const limit = headers.get('x-ratelimit-limit-tokens');
+  if (remaining === null || limit === null) {
+    return;
+  }
+  latestTokenStatus = {
+    remainingTokens: Number(remaining),
+    limitTokens: Number(limit),
+    resetTokens: headers.get('x-ratelimit-reset-tokens'),
+    model,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// Groq's TPM (per-minute) limit comes back in response headers, but TPD
+// (per-day) doesn't — Groq just doesn't expose it. Approximated here by
+// summing each response's usage.total_tokens into a counter that resets
+// when the calendar date (server-local time) changes.
+let dailyUsage = { date: todayKey(), totalTokens: 0 };
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function recordDailyUsage(totalTokens: number | undefined): void {
+  if (!totalTokens) {
+    return;
+  }
+  const key = todayKey();
+  if (dailyUsage.date !== key) {
+    dailyUsage = { date: key, totalTokens: 0 };
+  }
+  dailyUsage.totalTokens += totalTokens;
+}
+
+function currentDailyTokensUsed(): number {
+  return dailyUsage.date === todayKey() ? dailyUsage.totalTokens : 0;
+}
+
+function hasImageContent(messages: ChatMessage[]): boolean {
+  return messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((part) => part.type === 'image_url'),
+  );
+}
+
+// MODEL_VISION emits verbose, unpredictable-length <think> reasoning before
+// its answer, and this account's rate limit for it is a flat 8000 tokens
+// per minute — covering BOTH the prompt and the completion budget we ask
+// for. A fixed max_completion_tokens either truncates reasoning mid-thought
+// (too low) or gets the whole request rejected by the rate limiter on
+// image-heavy requests (too high, confirmed empirically: prompt ~1300
+// tokens/image + max_completion_tokens 6000 exceeded the limit on a single
+// image). So the completion budget is sized down as image count goes up,
+// leaving headroom under the 8000 ceiling either way. This is a heuristic,
+// not a guarantee — the truncated-<think> check below is the real backstop.
+function resolveVisionMaxTokens(messages: ChatMessage[]): number {
+  const imageCount = messages.reduce((count, m) => {
+    if (!Array.isArray(m.content)) return count;
+    return count + m.content.filter((p) => p.type === 'image_url').length;
+  }, 0);
+  const estimatedPromptTokens = 500 + imageCount * 1300;
+  const safetyMargin = 300;
+  const budget = 8000 - estimatedPromptTokens - safetyMargin;
+  return Math.max(3000, Math.min(5500, budget));
 }
 
 const app = express();
@@ -116,7 +210,11 @@ app.use(
     origin: isDev ? /^http:\/\/localhost:\d+$/ : allowedOrigin,
   }),
 );
-app.use(express.json({ limit: '100kb' }));
+// Pasted images are sent as base64 data URLs (up to 3 per message, up to
+// 20MB base64 each — MODEL_VISION's real limits, confirmed against the
+// live API) plus up to 50 messages of history that may themselves contain
+// images, so the old 100kb text-only limit is nowhere near enough.
+app.use(express.json({ limit: '75mb' }));
 
 const chatLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -139,23 +237,58 @@ app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: Nex
     }
 
     // Groq's API is OpenAI-compatible: messages take the same
-    // { role, content } shape we already validate, just with a leading
-    // "system" message for the persona instead of a separate param.
+    // { role, content } shape we already validate (content is either plain
+    // text or a Groq-style content-part array for image messages), just
+    // with a leading "system" message for the persona instead of a
+    // separate param.
     const mode = (req.body as { mode?: unknown } | null)?.mode;
-    const model = resolveModel(mode);
-    const reasoningEffort = resolveReasoningEffort(mode);
-    const completion = await groq.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: resolveSystemPrompt(mode) },
-        ...validation.messages.map((m) => ({ role: m.role, content: m.content })),
-      ],
-      // gpt-oss-120b only: spend more reasoning tokens for a deeper answer.
-      // Ignored by other models, so it's safe to always pass it.
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-    });
+    // Neither text model understands images, so any image content forces
+    // the vision model regardless of the selected mode.
+    const model = hasImageContent(validation.messages) ? MODEL_VISION : resolveModel(mode);
+    const reasoningEffort = model === MODEL_SMART ? resolveReasoningEffort(mode) : undefined;
+    const { data: completion, response } = await groq.chat.completions
+      .create({
+        model,
+        messages: [
+          { role: 'system', content: resolveSystemPrompt(mode) },
+          ...validation.messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+        // gpt-oss-120b only: spend more reasoning tokens for a deeper answer.
+        // Ignored by other models, so it's safe to always pass it.
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+        // See resolveVisionMaxTokens for why this is sized dynamically
+        // rather than a flat number.
+        ...(model === MODEL_VISION
+          ? { max_completion_tokens: resolveVisionMaxTokens(validation.messages) }
+          : {}),
+      })
+      .withResponse();
 
-    const text = completion.choices[0]?.message?.content;
+    captureTokenStatus(response.headers, model);
+    recordDailyUsage(completion.usage?.total_tokens);
+
+    const rawText = completion.choices[0]?.message?.content;
+    if (!rawText) {
+      res.status(502).json({ error: 'Model returned no text content.' });
+      return;
+    }
+    // MODEL_VISION emits its chain-of-thought inline as <think>...</think>
+    // ahead of the actual answer (no separate reasoning field on this
+    // model) — strip it so users only see the final reply. No-op for
+    // models that don't do this.
+    const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    // Defense in depth: if generation was cut off (finish_reason "length")
+    // mid-<think> block — no closing tag — the regex above found nothing to
+    // strip, so `text` would otherwise be the raw, confused reasoning dump.
+    // Surface a clear error instead of ever showing that to the user.
+    if (completion.choices[0]?.finish_reason === 'length' && rawText.includes('<think>') && !rawText.includes('</think>')) {
+      res.status(502).json({
+        error: 'The response was cut off before finishing. Please try again, maybe with fewer images or a shorter question.',
+      });
+      return;
+    }
+
     if (!text) {
       res.status(502).json({ error: 'Model returned no text content.' });
       return;
@@ -165,6 +298,14 @@ app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: Nex
   } catch (err) {
     next(err);
   }
+});
+
+// Cheap in-memory read, no external calls — no rate limiter needed.
+app.get('/api/token-status', (req: Request, res: Response) => {
+  res.json({
+    ...latestTokenStatus,
+    dailyTokensUsed: currentDailyTokensUsed(),
+  });
 });
 
 app.use('/api/conversations', conversationsRouter);

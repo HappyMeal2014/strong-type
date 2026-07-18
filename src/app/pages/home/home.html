@@ -49,7 +49,18 @@
                   : 'border border-white/10 bg-slate-900/60 text-slate-100 backdrop-blur-md'
               "
             >
-              {{ message.content }}
+              @if (imagesOf(message.content); as images) {
+                @if (images.length > 0) {
+                  <div class="mb-1.5 flex flex-wrap gap-1.5">
+                    @for (url of images; track url) {
+                      <img [src]="url" class="h-24 w-24 rounded-lg object-cover" />
+                    }
+                  </div>
+                }
+              }
+              @if (textOf(message.content); as text) {
+                {{ text }}
+              }
             </div>
           </div>
         }
@@ -86,6 +97,28 @@
       <div
         class="flex w-full shrink-0 flex-col gap-1.5 rounded-3xl border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2 sm:px-4 sm:py-2.5"
       >
+        @if (pendingImages().length > 0) {
+          <div class="flex w-full flex-wrap gap-2 px-1 pt-1">
+            @for (image of pendingImages(); track image.id) {
+              <div class="group relative h-14 w-14 shrink-0">
+                @if (image.loading) {
+                  <div class="h-full w-full animate-pulse rounded-lg bg-white/10"></div>
+                } @else {
+                  <img [src]="image.dataUrl" class="h-full w-full rounded-lg object-cover" />
+                }
+                <button
+                  type="button"
+                  (click)="removeImage(image.id)"
+                  aria-label="Remove image"
+                  class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-950 text-slate-300 shadow-md transition-colors hover:bg-red-500 hover:text-white"
+                >
+                  <svg lucideX class="h-3 w-3"></svg>
+                </button>
+              </div>
+            }
+          </div>
+        }
+
         <textarea
           #textInput
           rows="1"
@@ -93,18 +126,62 @@
           [disabled]="loading()"
           (keydown)="handleKeydown(textInput, $event)"
           (input)="autoResize(textInput)"
+          (paste)="handlePaste($event)"
           class="chat-textarea max-h-[200px] w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-sm leading-snug text-slate-100 placeholder-slate-400 outline-none disabled:opacity-50 sm:text-base"
         ></textarea>
 
         <div class="flex w-full items-center justify-between gap-1.5 sm:gap-2.5">
           <div class="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
-            <button
-              type="button"
-              aria-label="Add attachment"
-              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
-            >
-              <svg lucidePlus class="h-4 w-4"></svg>
-            </button>
+            <div class="relative shrink-0">
+              <button
+                type="button"
+                (click)="toggleTokenStatus()"
+                aria-label="Show token usage"
+                class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-900/95 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+              >
+                <!-- lock-2.0.png is solid black line art on transparent —
+                     invert flips it to white so it reads against the dark
+                     button background, matching the light icon color used
+                     by the other icon buttons (Search/Mic). Sized to ~68%
+                     of the button (vs. the previous lock.png, which needed
+                     a background-image crop hack to fill edge to edge)
+                     since this asset's own content already has minimal
+                     padding, so a plain object-contain fit works here. -->
+                <img
+                  src="/lock-2.0.png"
+                  alt=""
+                  class="h-[68%] w-[68%] object-contain invert"
+                />
+              </button>
+
+              @if (tokenStatusOpen()) {
+                <div class="fixed inset-0 z-40" (click)="tokenStatusOpen.set(false)"></div>
+                <div
+                  class="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 px-4 py-3 text-sm shadow-lg shadow-black/30 backdrop-blur-md"
+                >
+                  @if (tokenStatusLoading()) {
+                    <p class="text-slate-400">Checking token usage…</p>
+                  } @else if (tokenStatus(); as status) {
+                    @if (status.remainingTokens !== null && status.limitTokens !== null) {
+                      <p class="font-medium text-slate-100">
+                        {{ status.remainingTokens.toLocaleString() }} /
+                        {{ status.limitTokens.toLocaleString() }} tokens left this minute
+                      </p>
+                      @if (status.resetTokens) {
+                        <p class="mt-1 text-xs text-slate-400">Resets in {{ status.resetTokens }}</p>
+                      }
+                      <p class="mt-1 text-xs text-slate-400">
+                        {{ status.dailyTokensUsed.toLocaleString() }} tokens used today
+                      </p>
+                    } @else {
+                      <p class="text-slate-400">Limit info will appear after your first message.</p>
+                    }
+                  } @else {
+                    <p class="text-slate-400">Limit info will appear after your first message.</p>
+                  }
+                </div>
+              }
+            </div>
 
             <div class="relative shrink-0">
               <button

@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
 import { Conversation } from '../models/conversation';
 import { isMongoConnected } from '../db';
-import { validateMessages } from '../validation';
+import { validateMessages, ChatMessage } from '../validation';
 
 export const conversationsRouter = Router();
 
@@ -33,14 +33,27 @@ function requireValidId(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-function titleFromMessages(messages: { role: string; content: string }[]): string {
+function titleFromMessages(messages: ChatMessage[]): string {
   const firstUserMessage = messages.find((m) => m.role === 'user');
   if (!firstUserMessage) {
     return 'New Chat';
   }
-  const trimmed = firstUserMessage.content.trim().replace(/\s+/g, ' ');
+
+  // content is either plain text or a Groq-style content-part array once
+  // images are attached — pull out just the text for the title.
+  const rawText =
+    typeof firstUserMessage.content === 'string'
+      ? firstUserMessage.content
+      : firstUserMessage.content
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join(' ');
+
+  const trimmed = rawText.trim().replace(/\s+/g, ' ');
   if (!trimmed) {
-    return 'New Chat';
+    // Image-only message, no text to title with.
+    const hasImage = typeof firstUserMessage.content !== 'string';
+    return hasImage ? 'Image' : 'New Chat';
   }
   return trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
 }
