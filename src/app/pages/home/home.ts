@@ -82,16 +82,35 @@ export class Home {
     this.loadConversations();
   }
 
-  protected handleEnter(input: HTMLInputElement): void {
+  protected handleKeydown(input: HTMLTextAreaElement, event: KeyboardEvent): void {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    if (event.shiftKey) {
+      // Let the browser insert the newline; autoResize picks it up via (input).
+      return;
+    }
+    event.preventDefault();
+
     const text = input.value.trim();
     if (!text || this.loading()) {
       return;
     }
     input.value = '';
+    this.autoResize(input);
     this.submit(text);
   }
 
-  protected newChat(input: HTMLInputElement): void {
+  // Grows the textarea to fit its content, up to the CSS max-height (which
+  // then takes over with internal scrolling) — reset height to 'auto' first
+  // so shrinking (e.g. after deleting a line, or clearing on submit) is
+  // picked up too, not just growth.
+  protected autoResize(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }
+
+  protected newChat(input: HTMLTextAreaElement): void {
     this.pendingRequest?.unsubscribe();
     this.pendingRequest = null;
 
@@ -180,12 +199,13 @@ export class Home {
       });
   }
 
-  private resetChat(input: HTMLInputElement): void {
+  private resetChat(input: HTMLTextAreaElement): void {
     this.messages.set([]);
     this.error.set(null);
     this.loading.set(false);
     this.activeConversationId.set(null);
     input.value = '';
+    this.autoResize(input);
   }
 
   private loadConversations(): void {

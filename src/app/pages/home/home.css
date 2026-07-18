@@ -19,6 +19,18 @@
   display: none; /* Chrome, Edge, Safari */
 }
 
+/* The input textarea scrolls internally once it hits its max-height, but
+   should look like it just stops growing rather than turning into a text
+   box with a visible scrollbar. */
+.chat-textarea {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE / legacy Edge */
+}
+
+.chat-textarea::-webkit-scrollbar {
+  display: none; /* Chrome, Edge, Safari */
+}
+
 /* Mirrors the message log's flex-grow while empty (equal grow above and
    below centers the greeting + input bar as a unit) and collapses to 0
    once messages exist, so the log above expands and the input bar

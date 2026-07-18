@@ -22,7 +22,7 @@
       type="button"
       (click)="sidebarOpen.set(true)"
       aria-label="Show conversation history"
-      class="fixed top-4 left-24 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/8 text-slate-300 backdrop-blur-md transition-colors hover:bg-white/15 sm:hidden"
+      class="fixed top-4 left-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/8 text-slate-300 backdrop-blur-md transition-colors hover:bg-white/15 sm:hidden"
     >
       <svg lucideMenu class="h-4 w-4"></svg>
     </button>
@@ -30,17 +30,8 @@
     <img
       src="/the-logo-2.0.png"
       alt="StrongType logo"
-      class="absolute top-4 left-4 h-16 w-auto sm:top-6 sm:left-6 sm:h-24 lg:h-28"
+      class="fixed top-1 right-4 z-10 h-16 w-auto sm:top-2 sm:right-6 sm:h-24 lg:h-28"
     />
-
-    <button
-      type="button"
-      (click)="newChat(textInput)"
-      class="fixed top-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-black/30 transition-colors hover:bg-blue-600 sm:top-6 sm:right-6"
-    >
-      <svg lucidePlus class="h-4 w-4"></svg>
-      <span>New Chat</span>
-    </button>
 
     <div class="flex w-full max-w-2xl flex-1 flex-col items-center gap-3 overflow-hidden px-2">
       <!-- Always present so it can act as the top spacer before any messages
@@ -93,109 +84,114 @@
       }
 
       <div
-        class="flex w-full shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2.5 sm:px-4 sm:py-2.5"
+        class="flex w-full shrink-0 flex-col gap-1.5 rounded-3xl border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2 sm:px-4 sm:py-2.5"
       >
-        <button
-          type="button"
-          aria-label="Add attachment"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
-        >
-          <svg lucidePlus class="h-4 w-4"></svg>
-        </button>
-
-        <div class="relative shrink-0">
-          <button
-            type="button"
-            (click)="modeMenuOpen.set(!modeMenuOpen())"
-            class="flex items-center gap-1 rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-slate-200 transition-colors hover:bg-white/15 sm:text-sm"
-          >
-            <span>{{ modeLabel() }}</span>
-            <svg
-              lucideChevronDown
-              class="h-3.5 w-3.5 transition-transform"
-              [class.rotate-180]="modeMenuOpen()"
-            ></svg>
-          </button>
-
-          @if (modeMenuOpen()) {
-            <div class="fixed inset-0 z-40" (click)="modeMenuOpen.set(false)"></div>
-            <div
-              class="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 py-1 shadow-lg shadow-black/30 backdrop-blur-md"
-            >
-              <button
-                type="button"
-                (click)="selectMode('general')"
-                class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
-                [class]="
-                  mode() === 'general'
-                    ? 'bg-blue-500/15 text-blue-300'
-                    : 'text-slate-300 hover:bg-white/10'
-                "
-              >
-                <span>Explore (kids)</span>
-                @if (mode() === 'general') {
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="selectMode('teenager')"
-                class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
-                [class]="
-                  mode() === 'teenager'
-                    ? 'bg-blue-500/15 text-blue-300'
-                    : 'text-slate-300 hover:bg-white/10'
-                "
-              >
-                <span>Insight (teenager)</span>
-                @if (mode() === 'teenager') {
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="selectMode('smart')"
-                class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
-                [class]="
-                  mode() === 'smart'
-                    ? 'bg-blue-500/15 text-blue-300'
-                    : 'text-slate-300 hover:bg-white/10'
-                "
-              >
-                <span>Deeper Insight (adult)</span>
-                @if (mode() === 'smart') {
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
-                }
-              </button>
-            </div>
-          }
-        </div>
-
-        <input
+        <textarea
           #textInput
-          type="text"
+          rows="1"
           placeholder="Ask me anything..."
           [disabled]="loading()"
-          (keydown.enter)="handleEnter(textInput)"
-          class="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-100 placeholder-slate-400 outline-none disabled:opacity-50 sm:text-base"
-        />
+          (keydown)="handleKeydown(textInput, $event)"
+          (input)="autoResize(textInput)"
+          class="chat-textarea max-h-[200px] w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-sm leading-snug text-slate-100 placeholder-slate-400 outline-none disabled:opacity-50 sm:text-base"
+        ></textarea>
 
-        <div class="flex shrink-0 items-center gap-1 sm:gap-1.5">
-          <button
-            type="button"
-            aria-label="Search"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
-          >
-            <svg lucideSearch class="h-4 w-4"></svg>
-          </button>
+        <div class="flex w-full items-center justify-between gap-1.5 sm:gap-2.5">
+          <div class="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+            <button
+              type="button"
+              aria-label="Add attachment"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+            >
+              <svg lucidePlus class="h-4 w-4"></svg>
+            </button>
 
-          <button
-            type="button"
-            aria-label="Voice input"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
-          >
-            <svg lucideMic class="h-4 w-4"></svg>
-          </button>
+            <div class="relative shrink-0">
+              <button
+                type="button"
+                (click)="modeMenuOpen.set(!modeMenuOpen())"
+                class="flex items-center gap-1 rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-slate-200 transition-colors hover:bg-white/15 sm:text-sm"
+              >
+                <span>{{ modeLabel() }}</span>
+                <svg
+                  lucideChevronDown
+                  class="h-3.5 w-3.5 transition-transform"
+                  [class.rotate-180]="modeMenuOpen()"
+                ></svg>
+              </button>
+
+              @if (modeMenuOpen()) {
+                <div class="fixed inset-0 z-40" (click)="modeMenuOpen.set(false)"></div>
+                <div
+                  class="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 py-1 shadow-lg shadow-black/30 backdrop-blur-md"
+                >
+                  <button
+                    type="button"
+                    (click)="selectMode('general')"
+                    class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
+                    [class]="
+                      mode() === 'general'
+                        ? 'bg-blue-500/15 text-blue-300'
+                        : 'text-slate-300 hover:bg-white/10'
+                    "
+                  >
+                    <span>Explore (kids)</span>
+                    @if (mode() === 'general') {
+                      <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    (click)="selectMode('teenager')"
+                    class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
+                    [class]="
+                      mode() === 'teenager'
+                        ? 'bg-blue-500/15 text-blue-300'
+                        : 'text-slate-300 hover:bg-white/10'
+                    "
+                  >
+                    <span>Insight (teenager)</span>
+                    @if (mode() === 'teenager') {
+                      <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    (click)="selectMode('smart')"
+                    class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
+                    [class]="
+                      mode() === 'smart'
+                        ? 'bg-blue-500/15 text-blue-300'
+                        : 'text-slate-300 hover:bg-white/10'
+                    "
+                  >
+                    <span>Deeper Insight (adult)</span>
+                    @if (mode() === 'smart') {
+                      <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
+                    }
+                  </button>
+                </div>
+              }
+            </div>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-1 sm:gap-1.5">
+            <button
+              type="button"
+              aria-label="Search"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+            >
+              <svg lucideSearch class="h-4 w-4"></svg>
+            </button>
+
+            <button
+              type="button"
+              aria-label="Voice input"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-300 transition-colors hover:bg-white/15 sm:h-9 sm:w-9"
+            >
+              <svg lucideMic class="h-4 w-4"></svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -205,7 +201,14 @@
 </div>
 
 <ng-template #historyList>
-  <h2 class="px-2 pb-2 text-xs font-semibold tracking-wide text-slate-400 uppercase">History</h2>
+  <button
+    type="button"
+    (click)="newChat(textInput)"
+    class="mb-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-blue-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-black/30 transition-colors hover:bg-blue-600"
+  >
+    <svg lucidePlus class="h-4 w-4"></svg>
+    <span>New Chat</span>
+  </button>
   @for (conversation of conversationsList(); track conversation.id) {
     <div
       class="group mb-1 flex items-center rounded-lg border transition-colors"
