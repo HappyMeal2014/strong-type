@@ -103,13 +103,73 @@
           <svg lucidePlus class="h-4 w-4"></svg>
         </button>
 
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-1 rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-slate-200 transition-colors hover:bg-white/15 sm:text-sm"
-        >
-          <span>General</span>
-          <svg lucideChevronDown class="h-3.5 w-3.5"></svg>
-        </button>
+        <div class="relative shrink-0">
+          <button
+            type="button"
+            (click)="modeMenuOpen.set(!modeMenuOpen())"
+            class="flex items-center gap-1 rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-slate-200 transition-colors hover:bg-white/15 sm:text-sm"
+          >
+            <span>{{ modeLabel() }}</span>
+            <svg
+              lucideChevronDown
+              class="h-3.5 w-3.5 transition-transform"
+              [class.rotate-180]="modeMenuOpen()"
+            ></svg>
+          </button>
+
+          @if (modeMenuOpen()) {
+            <div class="fixed inset-0 z-40" (click)="modeMenuOpen.set(false)"></div>
+            <div
+              class="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 py-1 shadow-lg shadow-black/30 backdrop-blur-md"
+            >
+              <button
+                type="button"
+                (click)="selectMode('general')"
+                class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
+                [class]="
+                  mode() === 'general'
+                    ? 'bg-blue-500/15 text-blue-300'
+                    : 'text-slate-300 hover:bg-white/10'
+                "
+              >
+                <span>Explore (kids)</span>
+                @if (mode() === 'general') {
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
+                }
+              </button>
+              <button
+                type="button"
+                (click)="selectMode('teenager')"
+                class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
+                [class]="
+                  mode() === 'teenager'
+                    ? 'bg-blue-500/15 text-blue-300'
+                    : 'text-slate-300 hover:bg-white/10'
+                "
+              >
+                <span>Insight (teenager)</span>
+                @if (mode() === 'teenager') {
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
+                }
+              </button>
+              <button
+                type="button"
+                (click)="selectMode('smart')"
+                class="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors"
+                [class]="
+                  mode() === 'smart'
+                    ? 'bg-blue-500/15 text-blue-300'
+                    : 'text-slate-300 hover:bg-white/10'
+                "
+              >
+                <span>Deeper Insight (adult)</span>
+                @if (mode() === 'smart') {
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"></span>
+                }
+              </button>
+            </div>
+          }
+        </div>
 
         <input
           #textInput

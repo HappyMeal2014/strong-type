@@ -28,6 +28,17 @@ interface ConversationSummary {
   title: string;
 }
 
+export type ChatMode = 'general' | 'teenager' | 'smart';
+
+// Short form shown on the collapsed pill once a mode is selected. The
+// dropdown list shows the full "(kids)/(teenager)/(adult)" labels directly
+// in the template, since those never change once opened.
+const MODE_LABELS_SHORT: Record<ChatMode, string> = {
+  general: 'Explore',
+  teenager: 'Insight',
+  smart: 'Deeper Insight',
+};
+
 @Component({
   selector: 'app-home',
   imports: [
@@ -54,6 +65,10 @@ export class Home {
   protected readonly conversationsList = signal<ConversationSummary[]>([]);
   protected readonly activeConversationId = signal<string | null>(null);
   protected readonly sidebarOpen = signal(false);
+
+  protected readonly mode = signal<ChatMode>('general');
+  protected readonly modeLabel = computed(() => MODE_LABELS_SHORT[this.mode()]);
+  protected readonly modeMenuOpen = signal(false);
 
   private readonly scrollAnchor = viewChild<ElementRef<HTMLDivElement>>('scrollAnchor');
 
@@ -117,6 +132,11 @@ export class Home {
         );
       },
     });
+  }
+
+  protected selectMode(mode: ChatMode): void {
+    this.mode.set(mode);
+    this.modeMenuOpen.set(false);
   }
 
   protected deleteConversation(id: string, event: Event): void {
@@ -209,7 +229,7 @@ export class Home {
 
     const payload = this.messages().slice(-MAX_HISTORY_SENT);
     this.pendingRequest = this.http
-      .post<{ reply: string }>(CHAT_URL, { messages: payload })
+      .post<{ reply: string }>(CHAT_URL, { messages: payload, mode: this.mode() })
       .subscribe({
         next: (response) => {
           this.messages.update((history) => [
