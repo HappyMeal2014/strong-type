@@ -41,7 +41,18 @@ const SYSTEM_PROMPT =
   'clearly asks for more detail.';
 
 const app = express();
-app.use(cors({ origin: process.env['ALLOWED_ORIGIN'] ?? 'http://localhost:4200' }));
+
+const isDev = process.env['NODE_ENV'] !== 'production';
+const allowedOrigin = process.env['ALLOWED_ORIGIN'] ?? 'http://localhost:4200';
+
+app.use(
+  cors({
+    // In dev, the Angular CLI can land on a different port than 4200 if its
+    // usual port is already taken, so allow any localhost origin instead of
+    // hardcoding one. Production stays locked to ALLOWED_ORIGIN.
+    origin: isDev ? /^http:\/\/localhost:\d+$/ : allowedOrigin,
+  }),
+);
 app.use(express.json({ limit: '100kb' }));
 
 const chatLimiter = rateLimit({
@@ -88,8 +99,6 @@ app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: Nex
 });
 
 app.use('/api/conversations', conversationsRouter);
-
-const isDev = process.env['NODE_ENV'] !== 'production';
 
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   const message = err instanceof Error ? err.message : String(err);

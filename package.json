@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "dev": "concurrently -n web,api -c blue,green \"npm run start\" \"npm run dev --prefix server\""
   },
   "private": true,
   "packageManager": "npm@11.16.0",
@@ -26,6 +27,7 @@
     "@angular/cli": "^22.0.7",
     "@angular/compiler-cli": "^22.0.0",
     "@tailwindcss/postcss": "^4.3.2",
+    "concurrently": "^10.0.3",
     "jsdom": "^28.0.0",
     "postcss": "^8.5.19",
     "prettier": "^3.8.1",
