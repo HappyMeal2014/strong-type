@@ -1,4 +1,7 @@
-export const MAX_MESSAGE_LENGTH = 2000;
+// ~4000 chars is roughly 800-1000 tokens at typical English text density
+// (~4-5 chars/token) — comfortably inside Groq's per-request token limits
+// while allowing much longer questions/pastes than the old 2000 cap.
+export const MAX_MESSAGE_LENGTH = 4000;
 export const MAX_HISTORY_LENGTH = 50;
 // MODEL_VISION's (qwen/qwen3.6-27b) real per-request limits, confirmed
 // against the live Groq API — not the 5-image/4MB figures commonly quoted

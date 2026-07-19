@@ -56,7 +56,12 @@ const SYSTEM_PROMPT_GENERAL =
   'a site for strengthening and improving written text. Explain things simply, ' +
   'the way you would to a 12-year-old: short sentences, easy everyday words, ' +
   'no jargon. Keep replies short — a few sentences at most, unless the user ' +
-  'clearly asks for more detail.';
+  'clearly asks for more detail. This is "Explore" mode, for a child ' +
+  'audience — keep your tone warm and encouraging. Do not include violence, ' +
+  'sexual content, drugs/alcohol, profanity, or other mature or frightening ' +
+  'subject matter. If the question touches on something not appropriate ' +
+  'for a child, gently steer to a safe, age-appropriate angle instead of ' +
+  'engaging with the mature part.';
 
 // Insight mode is the middle tier: more explanation than General, but
 // explicitly capped to a single short paragraph and no structure (headings/
@@ -73,7 +78,11 @@ const SYSTEM_PROMPT_TEENAGER =
   'bullet lists, or multiple sections. Write tightly: no filler phrases, no ' +
   'restating the question, no saying the same point twice in different ' +
   'words — every sentence should add something new. Keep the full amount of ' +
-  'information, just say it more economically.';
+  'information, just say it more economically. This mode is for a teenage ' +
+  'audience — avoid explicit sexual content, graphic violence, drug-use ' +
+  'instructions, or other adult material. You can acknowledge that mature ' +
+  'topics exist and discuss them at a general, non-graphic level when ' +
+  'directly relevant, but do not go into explicit detail.';
 
 // Deeper Insight is the most thorough tier this app offers: the largest
 // model, highest reasoning effort, and explicitly told to go deep and use
@@ -81,19 +90,21 @@ const SYSTEM_PROMPT_TEENAGER =
 // means covering more ground, not restating the same ground in more words.
 const SYSTEM_PROMPT_SMART =
   'You are the helpful conversational AI assistant embedded in Strong Type, ' +
-  'a site for strengthening and improving written text. Explain things simply, ' +
-  'the way you would to a 12-year-old: short sentences, easy everyday words, ' +
-  'no jargon. This is "Deeper Insight" mode, the most thorough option this ' +
-  'app offers — give a comprehensive, well-structured answer that covers the ' +
-  'relevant details, reasoning, and useful context in full rather than a ' +
-  'quick summary, using headings or a short list if that makes it clearer, ' +
-  'while keeping the language simple and easy to follow. Keep every bit of ' +
-  'that depth — cover the same range of sub-topics you otherwise would; do ' +
-  'not drop a topic or example just to save space. Instead write tightly: ' +
-  'no filler phrases, no throat-clearing intros, and no restating a point ' +
-  'you already made (including in a closing "recap" or "bottom line" ' +
-  'section — do not add one). Each sentence should carry new information, ' +
-  'so the same substance takes up ' +
+  'a site for strengthening and improving written text. This is "Deeper ' +
+  'Insight" mode, for an adult audience and the most thorough option this ' +
+  'app offers — give a comprehensive, well-structured answer that covers ' +
+  'the relevant details, reasoning, and useful context in full rather than ' +
+  'a quick summary, using headings or a short list if that makes it ' +
+  'clearer. You do not need to simplify vocabulary or avoid jargon — write ' +
+  'at a full adult level, and be technical or direct where that serves the ' +
+  'answer. There are no additional content restrictions beyond normal ' +
+  'safety limits: mature or complex topics can be discussed in full depth ' +
+  'when relevant. Keep every bit of that depth — cover the same range of ' +
+  'sub-topics you otherwise would; do not drop a topic or example just to ' +
+  'save space. Instead write tightly: no filler phrases, no throat-clearing ' +
+  'intros, and no restating a point you already made (including in a ' +
+  'closing "recap" or "bottom line" section — do not add one). Each ' +
+  'sentence should carry new information, so the same substance takes up ' +
   'less text.';
 
 function resolveSystemPrompt(mode: unknown): string {
@@ -119,6 +130,10 @@ interface TokenStatus {
   remainingTokens: number | null;
   limitTokens: number | null;
   resetTokens: string | null;
+  // Parsed from resetTokens (a duration like "585ms"/"7.66s"/"1m26.4s") into
+  // plain seconds, so the frontend can drive a live countdown against
+  // updatedAt instead of re-parsing Groq's ad-hoc duration format itself.
+  resetTokensSeconds: number | null;
   model: string | null;
   updatedAt: string | null;
 }
@@ -126,9 +141,30 @@ let latestTokenStatus: TokenStatus = {
   remainingTokens: null,
   limitTokens: null,
   resetTokens: null,
+  resetTokensSeconds: null,
   model: null,
   updatedAt: null,
 };
+
+// Groq's x-ratelimit-reset-* headers use a compact duration format —
+// some combination of "<n>h", "<n>m", "<n>s" (fractional seconds allowed),
+// "<n>ms" — e.g. "585ms", "7.66s", "1m26.4s". Returns total seconds.
+function parseResetDuration(raw: string | null): number | null {
+  if (!raw) {
+    return null;
+  }
+  const match = raw.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?$/);
+  if (!match) {
+    return null;
+  }
+  const [, hours, minutes, seconds, millis] = match;
+  if (!hours && !minutes && !seconds && !millis) {
+    return null;
+  }
+  return (
+    Number(hours ?? 0) * 3600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0) + Number(millis ?? 0) / 1000
+  );
+}
 
 function captureTokenStatus(headers: Headers, model: string): void {
   const remaining = headers.get('x-ratelimit-remaining-tokens');
@@ -136,10 +172,12 @@ function captureTokenStatus(headers: Headers, model: string): void {
   if (remaining === null || limit === null) {
     return;
   }
+  const resetTokens = headers.get('x-ratelimit-reset-tokens');
   latestTokenStatus = {
     remainingTokens: Number(remaining),
     limitTokens: Number(limit),
-    resetTokens: headers.get('x-ratelimit-reset-tokens'),
+    resetTokens,
+    resetTokensSeconds: parseResetDuration(resetTokens),
     model,
     updatedAt: new Date().toISOString(),
   };

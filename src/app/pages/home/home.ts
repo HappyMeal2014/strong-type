@@ -1,4 +1,13 @@
-import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { NgTemplateOutlet } from '@angular/common';
 import { Observable, Subscription, map, of, tap } from 'rxjs';
@@ -25,6 +34,11 @@ const MAX_HISTORY_SENT = 50;
 // account (qwen/qwen3.6-27b), confirmed against the live Groq API.
 const MAX_IMAGES_PER_MESSAGE = 3;
 const MAX_IMAGE_BASE64_BYTES = 20 * 1024 * 1024;
+
+// Must match the server's MAX_MESSAGE_LENGTH — enforced here too so a
+// too-long message is caught instantly instead of round-tripping to the
+// backend just to be rejected.
+const MAX_MESSAGE_LENGTH = 4000;
 
 export interface TextContentPart {
   type: 'text';
@@ -63,6 +77,7 @@ interface TokenStatus {
   remainingTokens: number | null;
   limitTokens: number | null;
   resetTokens: string | null;
+  resetTokensSeconds: number | null;
   model: string | null;
   updatedAt: string | null;
   dailyTokensUsed: number;
@@ -94,7 +109,7 @@ const MODE_LABELS_SHORT: Record<ChatMode, string> = {
   templateUrl: './home.html',
   styleUrl: './home.css',
 })
-export class Home {
+export class Home implements OnDestroy {
   private readonly http = inject(HttpClient);
   private pendingRequest: Subscription | null = null;
 
@@ -113,9 +128,33 @@ export class Home {
 
   protected readonly pendingImages = signal<PendingImage[]>([]);
 
+  protected readonly messageLength = signal(0);
+  protected readonly messageLengthLimit = MAX_MESSAGE_LENGTH;
+  protected readonly messageOverLimit = computed(() => this.messageLength() > MAX_MESSAGE_LENGTH);
+
   protected readonly tokenStatusOpen = signal(false);
   protected readonly tokenStatus = signal<TokenStatus | null>(null);
   protected readonly tokenStatusLoading = signal(false);
+
+  // Ticks once a second (only while the popover is open — see
+  // toggleTokenStatus) so tokenResetSeconds recomputes into a live
+  // countdown instead of the static value from the last fetch.
+  private readonly now = signal(Date.now());
+  private tokenCountdownInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Derives the *actual* remaining reset time by subtracting elapsed time
+  // (now - updatedAt) from the reset duration captured at fetch time,
+  // instead of just displaying that captured duration statically. Clamped
+  // to >= 0 so it never goes negative or shows a stale/impossible number
+  // after the popover's been open a while.
+  protected readonly tokenResetSeconds = computed<number | null>(() => {
+    const status = this.tokenStatus();
+    if (status?.resetTokensSeconds == null || !status.updatedAt) {
+      return null;
+    }
+    const elapsedSeconds = (this.now() - new Date(status.updatedAt).getTime()) / 1000;
+    return Math.max(0, status.resetTokensSeconds - elapsedSeconds);
+  });
 
   private readonly scrollAnchor = viewChild<ElementRef<HTMLDivElement>>('scrollAnchor');
 
@@ -150,11 +189,26 @@ export class Home {
       this.error.set('Still reading a pasted image — try sending again in a moment.');
       return;
     }
+    if (text.length > MAX_MESSAGE_LENGTH) {
+      // Mirrors the backend's MAX_MESSAGE_LENGTH check — caught here first
+      // so it's instant instead of a round trip just to be rejected.
+      this.error.set(
+        `Your message is ${text.length.toLocaleString()} characters — please keep it under ${MAX_MESSAGE_LENGTH.toLocaleString()}.`,
+      );
+      return;
+    }
 
     input.value = '';
     this.autoResize(input);
+    this.updateMessageLength(input);
     this.pendingImages.set([]);
     this.submit(this.buildContent(text, images));
+  }
+
+  // Keeps the live character counter in sync — bound to the textarea's
+  // (input) event alongside autoResize.
+  protected updateMessageLength(input: HTMLTextAreaElement): void {
+    this.messageLength.set(input.value.length);
   }
 
   // Intercepts pasted images so they become thumbnails instead of pasting
@@ -320,10 +374,17 @@ export class Home {
   }
 
   // Fetches fresh on every open rather than once, so the popover reflects
-  // usage from messages sent since it was last checked.
+  // usage from messages sent since it was last checked. The countdown
+  // interval only runs while the popover is actually visible — no point
+  // ticking a signal nobody's reading.
   protected toggleTokenStatus(): void {
     const opening = !this.tokenStatusOpen();
     this.tokenStatusOpen.set(opening);
+
+    if (this.tokenCountdownInterval !== null) {
+      clearInterval(this.tokenCountdownInterval);
+      this.tokenCountdownInterval = null;
+    }
     if (!opening) {
       return;
     }
@@ -333,12 +394,29 @@ export class Home {
       next: (res) => {
         this.tokenStatus.set(res);
         this.tokenStatusLoading.set(false);
+        this.now.set(Date.now());
       },
       error: () => {
         this.tokenStatus.set(null);
         this.tokenStatusLoading.set(false);
       },
     });
+    this.tokenCountdownInterval = setInterval(() => this.now.set(Date.now()), 1000);
+  }
+
+  // "7.66" -> "8s"; "86.4" -> "1m 26s". Whole seconds only — this is a
+  // rough live indicator, not a stopwatch.
+  protected formatCountdown(seconds: number): string {
+    const total = Math.ceil(seconds);
+    const minutes = Math.floor(total / 60);
+    const remainingSeconds = total % 60;
+    return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
+  }
+
+  ngOnDestroy(): void {
+    if (this.tokenCountdownInterval !== null) {
+      clearInterval(this.tokenCountdownInterval);
+    }
   }
 
   protected deleteConversation(id: string, event: Event): void {
@@ -390,6 +468,7 @@ export class Home {
     this.pendingImages.set([]);
     input.value = '';
     this.autoResize(input);
+    this.updateMessageLength(input);
   }
 
   private loadConversations(): void {

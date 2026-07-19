@@ -17,7 +17,12 @@
     <ng-container [ngTemplateOutlet]="historyList"></ng-container>
   </aside>
 
-  <main class="relative flex min-w-0 flex-1 flex-col items-center px-4 py-16 sm:px-6">
+  <!-- Top padding must clear the fixed logo's bottom edge at every
+       breakpoint (logo: top-1/h-16 -> bottom ~68px; sm:top-2/sm:h-24 ->
+       ~104px; lg:h-28 -> ~120px) so the message log never starts rendering
+       underneath it, regardless of scroll position or message width —
+       kept as tight as possible (~8-12px margin) rather than a large gap. -->
+  <main class="relative flex min-w-0 flex-1 flex-col items-center px-4 pt-20 pb-16 sm:px-6 sm:pt-28 lg:pt-32">
     <button
       type="button"
       (click)="sidebarOpen.set(true)"
@@ -33,20 +38,23 @@
       class="fixed top-1 right-4 z-10 h-16 w-auto sm:top-2 sm:right-6 sm:h-24 lg:h-28"
     />
 
-    <div class="flex w-full max-w-2xl flex-1 flex-col items-center gap-3 overflow-hidden px-2">
+    <div class="flex w-full flex-1 flex-col items-center gap-3 overflow-hidden px-2">
       <!-- Always present so it can act as the top spacer before any messages
            exist, and the scrollable message log once they do — this lets the
            input bar's position below be driven by a single animated flex-grow
-           value instead of restructuring the DOM when messages appear. -->
+           value instead of restructuring the DOM when messages appear.
+           No max-width here (unlike the welcome heading/input bar below,
+           which keep max-w-2xl) — assistant replies should be able to use
+           the full width of this now-unconstrained column. -->
       <div class="chat-history flex min-h-0 w-full flex-1 flex-col gap-3 overflow-y-auto scroll-smooth px-1 py-1">
         @for (message of messages(); track $index) {
           <div class="flex" [class]="message.role === 'user' ? 'justify-end' : 'justify-start'">
             <div
-              class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm break-words sm:text-base"
+              class="rounded-2xl px-4 py-2.5 text-sm break-words sm:text-base"
               [class]="
                 message.role === 'user'
-                  ? 'bg-blue-500 text-white'
-                  : 'border border-white/10 bg-slate-900/60 text-slate-100 backdrop-blur-md'
+                  ? 'max-w-[80%] bg-blue-500 text-white'
+                  : 'max-w-[95%] border border-white/10 bg-slate-900/60 text-slate-100 backdrop-blur-md'
               "
             >
               @if (imagesOf(message.content); as images) {
@@ -89,13 +97,13 @@
       </div>
 
       @if (!hasMessages()) {
-        <h1 class="shrink-0 text-center text-2xl font-semibold text-white sm:text-3xl">
+        <h1 class="w-full max-w-2xl shrink-0 text-center text-2xl font-semibold text-white sm:text-3xl">
           Welcome back to StrongType. What would you want to talk about today?
         </h1>
       }
 
       <div
-        class="flex w-full shrink-0 flex-col gap-1.5 rounded-3xl border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2 sm:px-4 sm:py-2.5"
+        class="flex w-full max-w-2xl shrink-0 flex-col gap-1.5 rounded-3xl border border-white/10 bg-slate-900/60 px-2.5 py-2 shadow-lg shadow-black/30 outline outline-2 outline-offset-2 outline-black backdrop-blur-md sm:gap-2 sm:px-4 sm:py-2.5"
       >
         @if (pendingImages().length > 0) {
           <div class="flex w-full flex-wrap gap-2 px-1 pt-1">
@@ -125,7 +133,7 @@
           placeholder="Ask me anything..."
           [disabled]="loading()"
           (keydown)="handleKeydown(textInput, $event)"
-          (input)="autoResize(textInput)"
+          (input)="autoResize(textInput); updateMessageLength(textInput)"
           (paste)="handlePaste($event)"
           class="chat-textarea max-h-[200px] w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-sm leading-snug text-slate-100 placeholder-slate-400 outline-none disabled:opacity-50 sm:text-base"
         ></textarea>
@@ -167,8 +175,14 @@
                         {{ status.remainingTokens.toLocaleString() }} /
                         {{ status.limitTokens.toLocaleString() }} tokens left this minute
                       </p>
-                      @if (status.resetTokens) {
-                        <p class="mt-1 text-xs text-slate-400">Resets in {{ status.resetTokens }}</p>
+                      @if (tokenResetSeconds() !== null) {
+                        <p class="mt-1 text-xs text-slate-400">
+                          @if (tokenResetSeconds()! > 0) {
+                            Resets in {{ formatCountdown(tokenResetSeconds()!) }}
+                          } @else {
+                            Ready to send more
+                          }
+                        </p>
                       }
                       <p class="mt-1 text-xs text-slate-400">
                         {{ status.dailyTokensUsed.toLocaleString() }} tokens used today
@@ -253,6 +267,18 @@
           </div>
 
           <div class="flex shrink-0 items-center gap-1 sm:gap-1.5">
+            @if (messageLength() > 0) {
+              <span
+                class="mr-0.5 shrink-0 text-xs whitespace-nowrap tabular-nums"
+                [class]="
+                  messageOverLimit()
+                    ? 'text-red-400'
+                    : messageLength() > messageLengthLimit * 0.9
+                      ? 'text-amber-400'
+                      : 'text-slate-500'
+                "
+              >{{ messageLength().toLocaleString() }} / {{ messageLengthLimit.toLocaleString() }}</span>
+            }
             <button
               type="button"
               aria-label="Search"
