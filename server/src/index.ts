@@ -235,6 +235,25 @@ function resolveVisionMaxTokens(messages: ChatMessage[]): number {
   return Math.max(3000, Math.min(5500, budget));
 }
 
+// gpt-oss-120b (MODEL_SMART) has its own internal reasoning and can spend a
+// meaningful share of its token budget on that before ever emitting the
+// final answer, especially at reasoning_effort "high" (Deeper Insight
+// mode) — combined with previously having NO explicit cap here (silently
+// falling back to Groq's default, ~2048), that's a likely cause of "Model
+// returned no text content." on this model. Every non-vision request now
+// gets a generous explicit budget; MODEL_VISION keeps its own dynamic,
+// rate-limit-aware budget from resolveVisionMaxTokens.
+function resolveMaxCompletionTokens(
+  model: string,
+  reasoningEffort: 'high' | 'medium' | undefined,
+  messages: ChatMessage[],
+): number {
+  if (model === MODEL_VISION) {
+    return resolveVisionMaxTokens(messages);
+  }
+  return reasoningEffort ? 4096 : 2048;
+}
+
 const app = express();
 
 const isDev = process.env['NODE_ENV'] !== 'production';
@@ -284,50 +303,69 @@ app.post('/api/chat', chatLimiter, async (req: Request, res: Response, next: Nex
     // the vision model regardless of the selected mode.
     const model = hasImageContent(validation.messages) ? MODEL_VISION : resolveModel(mode);
     const reasoningEffort = model === MODEL_SMART ? resolveReasoningEffort(mode) : undefined;
-    const { data: completion, response } = await groq.chat.completions
-      .create({
-        model,
-        messages: [
-          { role: 'system', content: resolveSystemPrompt(mode) },
-          ...validation.messages.map((m) => ({ role: m.role, content: m.content })),
-        ],
-        // gpt-oss-120b only: spend more reasoning tokens for a deeper answer.
-        // Ignored by other models, so it's safe to always pass it.
-        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-        // See resolveVisionMaxTokens for why this is sized dynamically
-        // rather than a flat number.
-        ...(model === MODEL_VISION
-          ? { max_completion_tokens: resolveVisionMaxTokens(validation.messages) }
-          : {}),
-      })
-      .withResponse();
+    const maxCompletionTokens = resolveMaxCompletionTokens(model, reasoningEffort, validation.messages);
+    const groqMessages = [
+      { role: 'system' as const, content: resolveSystemPrompt(mode) },
+      ...validation.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
 
-    captureTokenStatus(response.headers, model);
-    recordDailyUsage(completion.usage?.total_tokens);
+    // Retries once on an empty/unusable response before giving up — this is
+    // sometimes a transient issue (confirmed during this same investigation:
+    // reasoning-heavy models occasionally burn their whole budget without
+    // ever emitting visible content on a given attempt).
+    const MAX_ATTEMPTS = 2;
+    let text = '';
+    let cutOffMidThink = false;
 
-    const rawText = completion.choices[0]?.message?.content;
-    if (!rawText) {
-      res.status(502).json({ error: 'Model returned no text content.' });
-      return;
-    }
-    // MODEL_VISION emits its chain-of-thought inline as <think>...</think>
-    // ahead of the actual answer (no separate reasoning field on this
-    // model) — strip it so users only see the final reply. No-op for
-    // models that don't do this.
-    const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const { data: completion, response } = await groq.chat.completions
+        .create({
+          model,
+          messages: groqMessages,
+          // gpt-oss-120b only: spend more reasoning tokens for a deeper
+          // answer. Ignored by other models, so it's safe to always pass it.
+          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+          max_completion_tokens: maxCompletionTokens,
+        })
+        .withResponse();
 
-    // Defense in depth: if generation was cut off (finish_reason "length")
-    // mid-<think> block — no closing tag — the regex above found nothing to
-    // strip, so `text` would otherwise be the raw, confused reasoning dump.
-    // Surface a clear error instead of ever showing that to the user.
-    if (completion.choices[0]?.finish_reason === 'length' && rawText.includes('<think>') && !rawText.includes('</think>')) {
-      res.status(502).json({
-        error: 'The response was cut off before finishing. Please try again, maybe with fewer images or a shorter question.',
-      });
-      return;
+      captureTokenStatus(response.headers, model);
+      recordDailyUsage(completion.usage?.total_tokens);
+
+      const rawText = completion.choices[0]?.message?.content ?? '';
+      const finishReason = completion.choices[0]?.finish_reason;
+      console.log(
+        `[chat] model=${model} mode=${String(mode)} attempt=${attempt}/${MAX_ATTEMPTS} ` +
+          `finish_reason=${finishReason} contentLength=${rawText.length}`,
+      );
+
+      // MODEL_VISION emits its chain-of-thought inline as <think>...</think>
+      // ahead of the actual answer (no separate reasoning field on this
+      // model) — strip it so users only see the final reply. No-op for
+      // models that don't do this.
+      const stripped = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      // Generation was cut off (finish_reason "length") mid-<think> block —
+      // no closing tag — so the strip above found nothing to remove and
+      // `stripped` would otherwise be the raw, confused reasoning dump.
+      cutOffMidThink = finishReason === 'length' && rawText.includes('<think>') && !rawText.includes('</think>');
+
+      if (stripped && !cutOffMidThink) {
+        text = stripped;
+        break;
+      }
+
+      if (attempt < MAX_ATTEMPTS) {
+        console.warn(`[chat] empty/unusable response on attempt ${attempt} (finish_reason=${finishReason}), retrying`);
+      }
     }
 
     if (!text) {
+      if (cutOffMidThink) {
+        res.status(502).json({
+          error: 'The response was cut off before finishing. Please try again, maybe with fewer images or a shorter question.',
+        });
+        return;
+      }
       res.status(502).json({ error: 'Model returned no text content.' });
       return;
     }
